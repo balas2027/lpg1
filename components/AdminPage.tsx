@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import type { Report } from '../types';
 import { Severity, ReportStatus } from '../types';
 import { MapComponent } from './MapComponent';
@@ -67,13 +67,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ reports, onResolveReport }
     }
   };
 
-  const handleShowRoute = (destination: google.maps.LatLngLiteral) => {
+  const handleShowRoute = useCallback((destination: google.maps.LatLngLiteral) => {
     if (!adminPosition) {
         alert('Please use "Find My Location" first to set your starting point.');
         return;
     }
     setRouteDestination(destination);
-  };
+  }, [adminPosition]);
 
   const analytics = useMemo(() => {
     const openReports = reports.filter(report => report.status === ReportStatus.OPEN);
