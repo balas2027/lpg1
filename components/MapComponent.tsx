@@ -49,27 +49,6 @@ const createAdminMarkerElement = (): HTMLElement => {
   return element;
 };
 
-const mapStyles: google.maps.MapTypeStyle[] = [
-    { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
-    { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
-    { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
-    { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
-    { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
-    { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#263c3f' }] },
-    { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#6b9a76' }] },
-    { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#38414e' }] },
-    { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#212a37' }] },
-    { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca5b3' }] },
-    { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#746855' }] },
-    { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1f2835' }] },
-    { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#f3d19c' }] },
-    { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2f3948' }] },
-    { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
-    { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#17263c' }] },
-    { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6d' }] },
-    { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#17263c' }] },
-];
-
 export const MapComponent: React.FC<MapComponentProps> = ({ reports, view, onMapClick, onResolveClick, centerOn, adminPosition, routeDestination, onShowRoute }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<google.maps.Map | null>(null);
@@ -90,7 +69,10 @@ export const MapComponent: React.FC<MapComponentProps> = ({ reports, view, onMap
       zoom: 12,
       disableDefaultUI: true,
       zoomControl: true,
-      styles: mapStyles
+      // A Map ID is REQUIRED for Advanced Markers. 
+      // You must create a Map ID in the Google Cloud Console and paste it here.
+      // Custom styles must also be configured in the Cloud Console for this Map ID.
+      mapId: 'YOUR_MAP_ID_HERE'
     });
 
     infoWindow.current = new google.maps.InfoWindow({ minWidth: 250 });
@@ -178,93 +160,84 @@ export const MapComponent: React.FC<MapComponentProps> = ({ reports, view, onMap
     const map = mapInstance.current;
     const currentInfoWindow = infoWindow.current;
 
-    const reportIds = new Set(reports.map(r => r.id));
-
-    markers.current.forEach((marker, id) => {
-      if (!reportIds.has(id)) {
-        marker.map = null;
-        markers.current.delete(id);
-      }
+    // Clear all previous report markers to ensure event listeners are updated
+    markers.current.forEach(marker => {
+      marker.map = null;
     });
+    markers.current.clear();
 
     reports.forEach(report => {
-      const existingMarker = markers.current.get(report.id);
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        position: report.position,
+        map: map,
+        title: report.locationName,
+        content: createReportMarkerElement(report),
+      });
 
-      if (existingMarker) {
-        existingMarker.content = createReportMarkerElement(report);
-      } else {
-        const marker = new google.maps.marker.AdvancedMarkerElement({
-          position: report.position,
-          map: map,
-          title: report.locationName,
-          content: createReportMarkerElement(report),
-        });
+      marker.addListener('gmp-click', () => {
+        if (!currentInfoWindow) return;
 
-        marker.addListener('gmp-click', () => {
-          if (!currentInfoWindow) return;
+        const severityColors: { [key in Severity]: string } = {
+          [Severity.LOW]: 'text-yellow-400',
+          [Severity.HIGH]: 'text-red-400',
+          [Severity.FIRE]: 'text-orange-400',
+        };
+        
+        const statusColor = report.status === ReportStatus.RESOLVED ? 'text-green-400' : severityColors[report.severity];
+        const statusText = report.status === ReportStatus.RESOLVED ? 'Resolved' : report.severity;
 
-          const severityColors: { [key in Severity]: string } = {
-            [Severity.LOW]: 'text-yellow-400',
-            [Severity.HIGH]: 'text-red-400',
-            [Severity.FIRE]: 'text-orange-400',
-          };
-          
-          const statusColor = report.status === ReportStatus.RESOLVED ? 'text-green-400' : severityColors[report.severity];
-          const statusText = report.status === ReportStatus.RESOLVED ? 'Resolved' : report.severity;
+        const adminContent = view === 'ADMIN' ? `
+          <p class="text-xs text-gray-400 mb-2">${report.timestamp.toLocaleString()}</p>
+          <p class="text-xs text-gray-400">Reported by: <span class="font-mono text-gray-300">${report.userEmail}</span></p>
+        ` : '';
+        
+        const actionButtonsHtml = (view === 'ADMIN' && report.status === ReportStatus.OPEN) ? `
+          <div class="mt-3 space-y-2">
+            <button id="resolve-btn-${report.id}" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
+              Mark as Resolved
+            </button>
+            <button id="route-btn-${report.id}" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
+              Show Route
+            </button>
+          </div>
+        ` : '';
 
-          const adminContent = view === 'ADMIN' ? `
-            <p class="text-xs text-gray-400 mb-2">${report.timestamp.toLocaleString()}</p>
-            <p class="text-xs text-gray-400">Reported by: <span class="font-mono text-gray-300">${report.userEmail}</span></p>
-          ` : '';
-          
-          const actionButtonsHtml = (view === 'ADMIN' && report.status === ReportStatus.OPEN) ? `
-            <div class="mt-3 space-y-2">
-              <button id="resolve-btn-${report.id}" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
-                Mark as Resolved
-              </button>
-              <button id="route-btn-${report.id}" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200">
-                Show Route
-              </button>
-            </div>
-          ` : '';
+        const contentString = `
+          <div class="p-2 bg-gray-800 text-white rounded-lg shadow-lg font-sans max-w-xs">
+            <h2 class="text-lg font-bold text-red-400 mb-2">${report.locationName}</h2>
+            <p class="mb-1"><strong>Status:</strong>
+              <span class="${statusColor} font-semibold ml-1">
+                ${statusText}
+              </span>
+            </p>
+            <div class="mt-2 pt-2 border-t border-gray-600">${adminContent}</div>
+            ${actionButtonsHtml}
+          </div>`;
+        
+        currentInfoWindow.setContent(contentString);
+        currentInfoWindow.open({ anchor: marker, map });
 
-          const contentString = `
-            <div class="p-2 bg-gray-800 text-white rounded-lg shadow-lg font-sans max-w-xs">
-              <h2 class="text-lg font-bold text-red-400 mb-2">${report.locationName}</h2>
-              <p class="mb-1"><strong>Status:</strong>
-                <span class="${statusColor} font-semibold ml-1">
-                  ${statusText}
-                </span>
-              </p>
-              <div class="mt-2 pt-2 border-t border-gray-600">${adminContent}</div>
-              ${actionButtonsHtml}
-            </div>`;
-          
-          currentInfoWindow.setContent(contentString);
-          currentInfoWindow.open({ anchor: marker, map });
+        if (view === 'ADMIN' && report.status === ReportStatus.OPEN) {
+          google.maps.event.addListenerOnce(currentInfoWindow, 'domready', () => {
+            if (onResolveClick) {
+              const button = document.getElementById(`resolve-btn-${report.id}`);
+              button?.addEventListener('click', () => {
+                onResolveClick(report.id);
+                currentInfoWindow.close();
+              });
+            }
+            if (onShowRoute) {
+              const routeButton = document.getElementById(`route-btn-${report.id}`);
+              routeButton?.addEventListener('click', () => {
+                onShowRoute(report.position);
+                currentInfoWindow.close();
+              });
+            }
+          });
+        }
+      });
 
-          if (view === 'ADMIN' && report.status === ReportStatus.OPEN) {
-            google.maps.event.addListenerOnce(currentInfoWindow, 'domready', () => {
-              if (onResolveClick) {
-                const button = document.getElementById(`resolve-btn-${report.id}`);
-                button?.addEventListener('click', () => {
-                  onResolveClick(report.id);
-                  currentInfoWindow.close();
-                });
-              }
-              if (onShowRoute) {
-                const routeButton = document.getElementById(`route-btn-${report.id}`);
-                routeButton?.addEventListener('click', () => {
-                  onShowRoute(report.position);
-                  currentInfoWindow.close();
-                });
-              }
-            });
-          }
-        });
-
-        markers.current.set(report.id, marker);
-      }
+      markers.current.set(report.id, marker);
     });
 
   }, [reports, view, onResolveClick, onShowRoute]);
